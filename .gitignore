@@ -1,0 +1,36 @@
+# Byte-compiled / caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Packaging / build artifacts
+*.egg-info/
+build/
+dist/
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# Vector store + ingested source documents (anchored to repo root with a
+# leading / so they never match a source package path).
+/data/chroma/
+/data/documents/*
+!/data/documents/sample_synthetic_research.md
+!/data/documents/README.md
+
+# Secrets — API keys must never be committed
+.env
+*.env
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+*.log

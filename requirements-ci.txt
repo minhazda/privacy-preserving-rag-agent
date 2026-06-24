@@ -1,0 +1,19 @@
+# Lightweight CI profile: everything needed to lint, type-check, and run the
+# UNIT tests. The heavy agent stack (chromadb, langchain*) is imported lazily in
+# source and mocked in tests, so it is intentionally excluded here to keep unit
+# CI fast and reliable. The full stack is installed inside the Docker image
+# (validated by the `docker` CI job) and via requirements.txt for real runs.
+pydantic==2.10.4
+PyYAML==6.0.2
+structlog==24.4.0
+httpx==0.28.1
+fastapi==0.115.6
+
+pytest==8.3.4
+pytest-cov==6.0.0
+respx==0.21.1
+
+ruff==0.8.4
+black==24.10.0
+mypy==1.14.0
+types-PyYAML==6.0.12.20240917

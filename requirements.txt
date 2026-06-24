@@ -1,0 +1,24 @@
+# ---------------------------------------------------------------------------
+# Runtime dependencies (pinned). Target: Python 3.11.
+# Embeddings run locally via ChromaDB's built-in ONNX MiniLM model (no torch,
+# no data leaves the machine) — aligned with the privacy-preserving design.
+# ---------------------------------------------------------------------------
+# Agent / orchestration
+langchain-core==0.3.29
+langchain==0.3.14
+langgraph==0.2.62
+langchain-anthropic==0.3.1
+
+# Vector store + embeddings (ONNX MiniLM bundled) + PDF loading
+chromadb==0.5.23
+pypdf==5.1.0
+
+# Serving
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+
+# Config, logging, and outbound calls to the Project 1 forecasting API
+PyYAML==6.0.2
+structlog==24.4.0
+httpx==0.28.1

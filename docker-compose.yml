@@ -1,0 +1,33 @@
+# Local stack for the RAG agent.
+#   docker compose run --rm ingest      # index the corpus
+#   docker compose up api               # serve on http://localhost:8080
+# ANTHROPIC_API_KEY is read from your shell/.env (never baked into the image).
+services:
+  ingest:
+    build: .
+    image: privacy-rag-agent:local
+    command: ["ingest"]
+    volumes:
+      - ./data/documents:/app/data/documents:ro
+      - rag-chroma:/app/data/chroma
+
+  api:
+    build: .
+    image: privacy-rag-agent:local
+    command: ["serve"]
+    ports:
+      - "8080:8080"
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # Point at the Project 1 forecasting API. On Docker Desktop, the host is
+      # reachable at host.docker.internal; override in config or here as needed.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./data/documents:/app/data/documents:ro
+      - rag-chroma:/app/data/chroma
+    depends_on:
+      - ingest
+
+volumes:
+  rag-chroma:

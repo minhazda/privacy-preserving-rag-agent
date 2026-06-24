@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Research RAG Agent</title>
+    <style>
+      :root { color-scheme: light dark; --accent: #4f46e5; }
+      * { box-sizing: border-box; }
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        margin: 0; background: #0b0d12; color: #e7e9ee; }
+      .wrap { max-width: 760px; margin: 0 auto; padding: 24px 16px; }
+      h1 { font-size: 1.15rem; font-weight: 650; }
+      .sub { color: #9aa3b2; font-size: .85rem; margin-top: -6px; }
+      #log { display: flex; flex-direction: column; gap: 12px; margin: 18px 0;
+        min-height: 50vh; }
+      .msg { padding: 12px 14px; border-radius: 12px; max-width: 88%;
+        white-space: pre-wrap; line-height: 1.45; font-size: .95rem; }
+      .user { align-self: flex-end; background: var(--accent); color: #fff; }
+      .bot { align-self: flex-start; background: #161a22; border: 1px solid #232936; }
+      .meta { font-size: .72rem; color: #7f8a9c; }
+      form { display: flex; gap: 8px; position: sticky; bottom: 12px; }
+      input { flex: 1; padding: 12px 14px; border-radius: 10px;
+        border: 1px solid #2a3140; background: #11151c; color: inherit; }
+      button { padding: 12px 18px; border: 0; border-radius: 10px;
+        background: var(--accent); color: #fff; font-weight: 600; cursor: pointer; }
+      button:disabled { opacity: .5; cursor: default; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>Privacy-Preserving Research RAG Agent</h1>
+      <p class="sub">Answers from the indexed dissertation/preprint and can run
+        live forecasts — over synthetic data only.</p>
+      <div id="log"></div>
+      <form id="f">
+        <input id="q" autocomplete="off" placeholder="Ask about the research or request a forecast…" />
+        <button id="send" type="submit">Send</button>
+      </form>
+    </div>
+    <script>
+      const log = document.getElementById("log");
+      const form = document.getElementById("f");
+      const input = document.getElementById("q");
+      const send = document.getElementById("send");
+
+      function bubble(text, cls, meta) {
+        const d = document.createElement("div");
+        d.className = "msg " + cls;
+        d.textContent = text;
+        if (meta) { const m = document.createElement("div"); m.className = "meta";
+          m.textContent = meta; d.appendChild(document.createElement("br")); d.appendChild(m); }
+        log.appendChild(d);
+        log.scrollTop = log.scrollHeight;
+        return d;
+      }
+
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const q = input.value.trim();
+        if (!q) return;
+        bubble(q, "user");
+        input.value = "";
+        send.disabled = true;
+        const pending = bubble("…thinking", "bot");
+        try {
+          const r = await fetch("/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ message: q }),
+          });
+          const data = await r.json();
+          pending.textContent = r.ok ? data.answer : ("Error: " + (data.detail || r.status));
+        } catch (err) {
+          pending.textContent = "Network error: " + err;
+        } finally {
+          send.disabled = false;
+          input.focus();
+        }
+      });
+    </script>
+  </body>
+</html>
