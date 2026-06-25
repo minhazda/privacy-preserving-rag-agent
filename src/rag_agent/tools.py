@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import difflib
 import re
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
@@ -26,6 +27,47 @@ from .privacy import PrivacyGuard
 from .vectorstore import RetrievedChunk
 
 log = get_logger(__name__)
+
+
+# --- Tool catalogue (single source of truth for name + description) ---------
+@dataclass(frozen=True)
+class ToolSpec:
+    """Public metadata for an agent tool (name + human-readable description)."""
+
+    name: str
+    description: str
+
+
+TOOL_SPECS: tuple[ToolSpec, ...] = (
+    ToolSpec(
+        "retrieve_research",
+        "Retrieve relevant passages from the research corpus "
+        "(dissertation + preprint). Input: a natural-language question.",
+    ),
+    ToolSpec(
+        "forecast_demand",
+        "Run live demand forecasts. Input: 'rows', a list of synthetic "
+        "pre-engineered feature dicts. Returns predicted demand values.",
+    ),
+    ToolSpec(
+        "explain_method",
+        "Explain a named technique (e.g. 'CTGAN', 'differential privacy', "
+        "'SMOTE', 'gradient boosting'). Input: the method name.",
+    ),
+)
+
+_SPEC_BY_NAME: dict[str, ToolSpec] = {s.name: s for s in TOOL_SPECS}
+
+
+def tool_specs() -> list[dict[str, str]]:
+    """Return the tool catalogue as plain dicts (for the ``/tools`` endpoint)."""
+    return [{"name": s.name, "description": s.description} for s in TOOL_SPECS]
+
+
+def tool_description(name: str) -> str:
+    """Return the registered description for ``name`` (empty if unknown)."""
+    spec = _SPEC_BY_NAME.get(name)
+    return spec.description if spec else ""
 
 
 # --- Query rewriting --------------------------------------------------------

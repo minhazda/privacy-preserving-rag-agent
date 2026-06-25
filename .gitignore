@@ -21,6 +21,7 @@ env/
 # Vector store + ingested source documents (anchored to repo root with a
 # leading / so they never match a source package path).
 /data/chroma/
+/data/audit/
 /data/documents/*
 !/data/documents/sample_synthetic_research.md
 !/data/documents/README.md

@@ -18,7 +18,7 @@ from .config import Config, api_key, load_config
 from .exceptions import RagAgentError
 from .logging_config import configure_logging, get_logger
 from .privacy import PrivacyGuard
-from .tools import explain_method, forecast_demand, retrieve_research
+from .tools import explain_method, forecast_demand, retrieve_research, tool_description
 
 log = get_logger(__name__)
 
@@ -31,9 +31,17 @@ class RagAgent:
     cfg: Config
     guard: PrivacyGuard
 
-    def answer(self, question: str) -> str:
-        """Answer ``question``, returning a privacy-filtered final response."""
-        result = self.graph.invoke({"messages": [("user", question)]})
+    def answer(self, question: str, session_id: str | None = None) -> str:
+        """Answer ``question``, returning a privacy-filtered final response.
+
+        Args:
+            question: The user's message.
+            session_id: Optional conversation id. Used as the LangGraph
+                ``thread_id`` so the agent remembers earlier turns in that
+                conversation; defaults to a shared ``"default"`` thread.
+        """
+        config = {"configurable": {"thread_id": session_id or "default"}}
+        result = self.graph.invoke({"messages": [("user", question)]}, config=config)
         messages = result.get("messages", [])
         if not messages:
             raise RagAgentError("Agent returned no messages.")
@@ -62,26 +70,17 @@ def _build_tools(cfg: Config, collection: Any, guard: PrivacyGuard) -> list[Any]
         StructuredTool.from_function(
             research_tool,
             name="retrieve_research",
-            description=(
-                "Retrieve relevant passages from the research corpus "
-                "(dissertation + preprint). Input: a natural-language question."
-            ),
+            description=tool_description("retrieve_research"),
         ),
         StructuredTool.from_function(
             forecast_tool,
             name="forecast_demand",
-            description=(
-                "Run live demand forecasts. Input: 'rows', a list of synthetic "
-                "pre-engineered feature dicts. Returns predicted demand values."
-            ),
+            description=tool_description("forecast_demand"),
         ),
         StructuredTool.from_function(
             explain_tool,
             name="explain_method",
-            description=(
-                "Explain a named technique (e.g. 'CTGAN', 'differential privacy', "
-                "'SMOTE', 'gradient boosting'). Input: the method name."
-            ),
+            description=tool_description("explain_method"),
         ),
     ]
 
@@ -103,6 +102,7 @@ def build_agent(cfg: Config | None = None) -> RagAgent:
     )
     try:
         from langchain_anthropic import ChatAnthropic
+        from langgraph.checkpoint.memory import MemorySaver
         from langgraph.prebuilt import create_react_agent
 
         from .vectorstore import get_collection
@@ -117,7 +117,12 @@ def build_agent(cfg: Config | None = None) -> RagAgent:
     )
     collection = get_collection(cfg)
     tools = _build_tools(cfg, collection, guard)
-    graph = create_react_agent(llm, tools, state_modifier=cfg.agent.system_prompt)
+    graph = create_react_agent(
+        llm,
+        tools,
+        state_modifier=cfg.agent.system_prompt,
+        checkpointer=MemorySaver(),
+    )
     log.info("agent_built", model=cfg.llm.model, tools=len(tools))
     return RagAgent(graph=graph, cfg=cfg, guard=guard)
 
