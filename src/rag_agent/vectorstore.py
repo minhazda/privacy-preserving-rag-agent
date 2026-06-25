@@ -51,7 +51,7 @@ def get_collection(cfg: Config) -> Collection:
     embedder = embedding_functions.DefaultEmbeddingFunction()
     return client.get_or_create_collection(
         name=cfg.ingest.collection_name,
-        embedding_function=embedder,
+        embedding_function=embedder,  # type: ignore[arg-type]
         metadata={"hnsw:space": "cosine"},
     )
 
@@ -65,7 +65,7 @@ def add_chunks(
     """Upsert chunks into the collection (idempotent on ``ids``)."""
     if not ids:
         return
-    collection.upsert(ids=ids, documents=texts, metadatas=metadatas)
+    collection.upsert(ids=ids, documents=texts, metadatas=metadatas)  # type: ignore[arg-type]
     log.info("chunks_indexed", count=len(ids))
 
 

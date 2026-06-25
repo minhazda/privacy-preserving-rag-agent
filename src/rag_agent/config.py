@@ -24,10 +24,11 @@ API_KEY_ENV = "ANTHROPIC_API_KEY"
 
 @dataclass(frozen=True)
 class PathsConfig:
-    """Filesystem locations for the corpus and vector store."""
+    """Filesystem locations for the corpus, vector store, and audit log."""
 
     documents_dir: Path
     chroma_dir: Path
+    audit_log: Path
 
 
 @dataclass(frozen=True)
@@ -56,6 +57,12 @@ class AgentConfig:
     max_iterations: int = 6
     retrieval_k: int = 4
     system_prompt: str = ""
+    # Minimum top-1 relevance (0..1, = 1 - cosine distance) required to trust a
+    # retrieval; below this the agent is told no confident match was found so it
+    # can answer "I don't know" instead of hallucinating.
+    min_relevance: float = 0.0
+    # Apply lightweight, deterministic query rewriting before retrieval.
+    enable_query_rewrite: bool = True
 
 
 @dataclass(frozen=True)
@@ -72,6 +79,14 @@ class PrivacyConfig:
 
     fail_closed: bool = True
     max_output_chars: int = 8000
+    # Differential-privacy (output perturbation) for forecast values. When
+    # enabled, each prediction is clipped to [0, dp_clip_max] (bounding
+    # sensitivity) and Laplace(sensitivity / epsilon) noise is added. Disabled
+    # by default; the underlying data is already synthetic, so this is an
+    # opt-in, demonstrable privacy primitive (defence in depth).
+    dp_enabled: bool = False
+    dp_epsilon: float = 1.0
+    dp_clip_max: float = 1000.0
 
 
 @dataclass(frozen=True)
@@ -145,6 +160,7 @@ def load_config(path: str | os.PathLike[str] | None = None) -> Config:
         paths = PathsConfig(
             documents_dir=_resolve(base, paths_raw["documents_dir"]),
             chroma_dir=_resolve(base, paths_raw["chroma_dir"]),
+            audit_log=_resolve(base, paths_raw.get("audit_log", "../data/audit/audit.jsonl")),
         )
         ingest = IngestConfig(**raw.get("ingest", {}))
         llm = LLMConfig(**raw.get("llm", {}))

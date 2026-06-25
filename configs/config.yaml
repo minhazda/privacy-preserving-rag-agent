@@ -10,6 +10,7 @@ log_level: INFO
 paths:
   documents_dir: ../data/documents      # source corpus (PDF / md / txt)
   chroma_dir: ../data/chroma            # persistent vector store
+  audit_log: ../data/audit/audit.jsonl  # append-only, hash-chained audit trail
 
 ingest:
   collection_name: research
@@ -25,6 +26,8 @@ llm:
 agent:
   max_iterations: 6
   retrieval_k: 4                        # chunks fetched per retrieval
+  min_relevance: 0.25                   # below this top-1 score -> "I don't know"
+  enable_query_rewrite: true            # deterministic query normalisation
   system_prompt: >
     You are a research assistant for Md Minhazur Rahman's work on real-time
     retail demand forecasting with synthetic data. Answer ONLY from retrieved
@@ -39,6 +42,9 @@ forecasting:
 privacy:
   fail_closed: true                     # block on uncertainty
   max_output_chars: 8000
+  dp_enabled: false                     # Laplace output-perturbation on forecasts
+  dp_epsilon: 1.0                       # smaller epsilon -> more noise / privacy
+  dp_clip_max: 1000.0                   # clip bound = output sensitivity
 
 api:
   host: 0.0.0.0

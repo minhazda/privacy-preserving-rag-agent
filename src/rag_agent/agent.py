@@ -18,7 +18,7 @@ from .config import Config, api_key, load_config
 from .exceptions import RagAgentError
 from .logging_config import configure_logging, get_logger
 from .privacy import PrivacyGuard
-from .tools import forecast_demand, retrieve_research
+from .tools import explain_method, forecast_demand, retrieve_research
 
 log = get_logger(__name__)
 
@@ -54,6 +54,10 @@ def _build_tools(cfg: Config, collection: Any, guard: PrivacyGuard) -> list[Any]
         """Forecast demand for synthetic feature rows via the forecasting API."""
         return forecast_demand(rows, cfg, guard)
 
+    def explain_tool(method: str) -> str:
+        """Explain a synthetic-data, privacy, or forecasting method by name."""
+        return explain_method(method, guard)
+
     return [
         StructuredTool.from_function(
             research_tool,
@@ -71,6 +75,14 @@ def _build_tools(cfg: Config, collection: Any, guard: PrivacyGuard) -> list[Any]
                 "pre-engineered feature dicts. Returns predicted demand values."
             ),
         ),
+        StructuredTool.from_function(
+            explain_tool,
+            name="explain_method",
+            description=(
+                "Explain a named technique (e.g. 'CTGAN', 'differential privacy', "
+                "'SMOTE', 'gradient boosting'). Input: the method name."
+            ),
+        ),
     ]
 
 
@@ -85,6 +97,9 @@ def build_agent(cfg: Config | None = None) -> RagAgent:
     guard = PrivacyGuard(
         fail_closed=cfg.privacy.fail_closed,
         max_output_chars=cfg.privacy.max_output_chars,
+        dp_enabled=cfg.privacy.dp_enabled,
+        dp_epsilon=cfg.privacy.dp_epsilon,
+        dp_clip_max=cfg.privacy.dp_clip_max,
     )
     try:
         from langchain_anthropic import ChatAnthropic
@@ -95,10 +110,10 @@ def build_agent(cfg: Config | None = None) -> RagAgent:
         raise RagAgentError("Agent dependencies missing; install requirements.txt.") from exc
 
     llm = ChatAnthropic(
-        model=cfg.llm.model,
+        model=cfg.llm.model,  # type: ignore[call-arg]
         temperature=cfg.llm.temperature,
-        max_tokens=cfg.llm.max_tokens,
-        api_key=api_key(),
+        max_tokens=cfg.llm.max_tokens,  # type: ignore[call-arg]
+        api_key=api_key(),  # type: ignore[arg-type]
     )
     collection = get_collection(cfg)
     tools = _build_tools(cfg, collection, guard)

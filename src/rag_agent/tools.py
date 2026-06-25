@@ -13,6 +13,8 @@ privacy-critical paths are unit-tested without spinning up an LLM.
 
 from __future__ import annotations
 
+import difflib
+import re
 from typing import Any
 
 import httpx
@@ -24,6 +26,147 @@ from .privacy import PrivacyGuard
 from .vectorstore import RetrievedChunk
 
 log = get_logger(__name__)
+
+
+# --- Query rewriting --------------------------------------------------------
+_ACRONYMS: dict[str, str] = {
+    "mae": "mean absolute error",
+    "rmse": "root mean squared error",
+    "mape": "mean absolute percentage error",
+    "dp": "differential privacy",
+    "gan": "generative adversarial network",
+    "ctgan": "conditional tabular generative adversarial network",
+    "tvae": "tabular variational autoencoder",
+    "kpi": "key performance indicator",
+    "eda": "exploratory data analysis",
+}
+
+
+def rewrite_query(question: str) -> str:
+    """Deterministically normalise and expand a query for better retrieval.
+
+    Collapses whitespace and appends spelled-out forms of any known acronyms so
+    dense retrieval matches both the abbreviation and its expansion. Pure and
+    deterministic — no LLM call — so it is fast and unit-testable.
+
+    Args:
+        question: The raw user question.
+
+    Returns:
+        The rewritten query (unchanged if empty or no acronyms present).
+    """
+    cleaned = " ".join(question.split()).strip()
+    if not cleaned:
+        return cleaned
+    expansions: list[str] = []
+    for token in re.findall(r"[A-Za-z]+", cleaned):
+        expanded = _ACRONYMS.get(token.lower())
+        if expanded:
+            expansions.append(expanded)
+    if expansions:
+        unique = list(dict.fromkeys(expansions))
+        cleaned = f"{cleaned} ({'; '.join(unique)})"
+    return cleaned
+
+
+# --- Method explanations ----------------------------------------------------
+_METHOD_LIBRARY: dict[str, str] = {
+    "synthetic_data": (
+        "Synthetic data is artificially generated data that preserves the "
+        "statistical structure of a real dataset without containing any real "
+        "records. It enables model development and sharing while removing direct "
+        "and indirect identifiers — the foundation of this project's privacy model."
+    ),
+    "differential_privacy": (
+        "Differential privacy (DP) gives a mathematical guarantee that the "
+        "presence or absence of any single record has a bounded effect on an "
+        "output, controlled by a privacy budget epsilon (smaller epsilon = more "
+        "privacy). It is typically enforced by adding calibrated noise (e.g. the "
+        "Laplace or Gaussian mechanism) to query results or gradients."
+    ),
+    "laplace_mechanism": (
+        "The Laplace mechanism achieves epsilon-DP for numeric outputs by adding "
+        "noise drawn from a Laplace distribution with scale = sensitivity / "
+        "epsilon, where sensitivity bounds how much one record can change the "
+        "output. This project applies it as opt-in output perturbation on forecasts."
+    ),
+    "ctgan": (
+        "CTGAN (Conditional Tabular GAN) is a generative adversarial network "
+        "specialised for tabular data: mode-specific normalisation handles "
+        "multi-modal continuous columns and a conditional generator with "
+        "training-by-sampling addresses imbalanced categorical columns."
+    ),
+    "tvae": (
+        "TVAE (Tabular Variational Autoencoder) learns a latent representation of "
+        "tabular data and samples from it to synthesise new rows. It often trains "
+        "more stably than a GAN but can blur sharp distributional modes."
+    ),
+    "smote": (
+        "SMOTE (Synthetic Minority Over-sampling Technique) creates new minority-"
+        "class examples by interpolating between a sample and its nearest "
+        "neighbours. It rebalances classes but is an augmentation method, not a "
+        "privacy mechanism."
+    ),
+    "k_anonymity": (
+        "k-anonymity generalises or suppresses quasi-identifiers so each record is "
+        "indistinguishable from at least k-1 others. It mitigates re-identification "
+        "but, unlike differential privacy, gives no guarantee against attribute "
+        "inference from background knowledge."
+    ),
+    "gradient_boosting": (
+        "Gradient-boosted decision trees (e.g. LightGBM, XGBoost) fit an additive "
+        "ensemble where each tree corrects the residual errors of the previous "
+        "ones. They are strong, efficient baselines for tabular demand forecasting."
+    ),
+}
+
+_METHOD_ALIASES: dict[str, str] = {
+    "dp": "differential_privacy",
+    "differential privacy": "differential_privacy",
+    "conditional tabular gan": "ctgan",
+    "tabular gan": "ctgan",
+    "variational autoencoder": "tvae",
+    "laplace": "laplace_mechanism",
+    "k anonymity": "k_anonymity",
+    "k-anonymity": "k_anonymity",
+    "lightgbm": "gradient_boosting",
+    "xgboost": "gradient_boosting",
+    "gbdt": "gradient_boosting",
+    "boosting": "gradient_boosting",
+}
+
+
+def explain_method(name: str, guard: PrivacyGuard) -> str:
+    """Explain a synthetic-data, privacy, or forecasting method by name.
+
+    Resolves aliases and tolerant matching (normalised key, then fuzzy match),
+    returning a concise, privacy-filtered explanation. Unknown methods return a
+    helpful list of supported names rather than a hard error, so the agent can
+    recover or fall back to :func:`retrieve_research`.
+
+    Args:
+        name: The method name or alias (case/spacing insensitive).
+        guard: Privacy guard applied to the returned text.
+
+    Returns:
+        A short explanation, or a "not found" message listing known methods.
+    """
+    raw = name.strip().lower()
+    key = _METHOD_ALIASES.get(raw, raw.replace(" ", "_").replace("-", "_"))
+    if key not in _METHOD_LIBRARY:
+        close = difflib.get_close_matches(key, _METHOD_LIBRARY, n=1, cutoff=0.6)
+        if close:
+            key = close[0]
+    explanation = _METHOD_LIBRARY.get(key)
+    if explanation is None:
+        known = ", ".join(sorted(_METHOD_LIBRARY))
+        log.info("explain_method_miss", requested=raw)
+        return (
+            f"'{name}' is not in the curated method library. Known methods: "
+            f"{known}. For detail specific to the research, use retrieve_research."
+        )
+    log.info("explain_method", method=key)
+    return guard.filter_output(explanation)
 
 
 def format_context(chunks: list[RetrievedChunk], guard: PrivacyGuard) -> str:
@@ -56,8 +199,21 @@ def retrieve_research(
     """
     from .vectorstore import query  # local import keeps chroma optional
 
-    chunks = query(collection, question, cfg.agent.retrieval_k)
-    log.info("retrieved", n=len(chunks))
+    effective = rewrite_query(question) if cfg.agent.enable_query_rewrite else question
+    chunks = query(collection, effective, cfg.agent.retrieval_k)
+    log.info("retrieved", n=len(chunks), rewritten=effective != question)
+    if not chunks:
+        return "No relevant passages were found in the indexed research corpus."
+    # Chroma returns cosine distance; relevance = 1 - distance, clamped to [0, 1].
+    top_relevance = max(0.0, 1.0 - chunks[0].distance)
+    if top_relevance < cfg.agent.min_relevance:
+        log.info("low_confidence", top_relevance=round(top_relevance, 3))
+        return (
+            "No sufficiently relevant passage was found in the indexed research "
+            f"corpus (top relevance {top_relevance:.2f} is below the "
+            f"{cfg.agent.min_relevance:.2f} threshold). Tell the user you do not "
+            "have this information rather than guessing."
+        )
     return format_context(chunks, guard)
 
 
@@ -106,5 +262,6 @@ def forecast_demand(
     preds = payload.get("predictions")
     if not isinstance(preds, list):
         raise ForecastToolError("Forecasting API returned no 'predictions' list.")
-    log.info("forecast_done", n=len(preds))
-    return [float(p) for p in preds]
+    values = guard.privatize_forecast([float(p) for p in preds])
+    log.info("forecast_done", n=len(values), dp=guard.dp_enabled)
+    return values

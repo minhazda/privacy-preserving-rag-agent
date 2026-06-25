@@ -15,8 +15,10 @@ operation nothing is ever redacted — this is defence in depth, not a crutch.
 
 from __future__ import annotations
 
+import math
+import random
 import re
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 
 from .exceptions import PrivacyViolationError
@@ -110,6 +112,69 @@ def redact_text(text: str) -> tuple[str, list[Finding]]:
     return redacted, findings
 
 
+# --- Differential privacy (output perturbation) ----------------------------
+def laplace_noise(scale: float, rng: random.Random | None = None) -> float:
+    """Sample zero-mean Laplace noise with the given ``scale`` (b).
+
+    Uses inverse-CDF sampling so a seeded :class:`random.Random` yields
+    reproducible draws (handy for tests).
+
+    Args:
+        scale: The Laplace scale parameter ``b`` (must be > 0).
+        rng: Optional seeded RNG; defaults to the module ``random``.
+
+    Returns:
+        A single noise sample drawn from ``Laplace(0, scale)``.
+    """
+    if scale <= 0:
+        raise ValueError("Laplace scale must be positive.")
+    r = rng or random
+    u = r.random() - 0.5
+    return -scale * math.copysign(1.0, u) * math.log(1.0 - 2.0 * abs(u))
+
+
+def privatize_values(
+    values: Iterable[float],
+    epsilon: float,
+    *,
+    clip_max: float,
+    clip_min: float = 0.0,
+    rng: random.Random | None = None,
+) -> list[float]:
+    """Apply the Laplace mechanism to numeric ``values`` (ε-differential privacy).
+
+    Each value is first clipped to ``[clip_min, clip_max]`` so the per-record
+    sensitivity is bounded by ``clip_max - clip_min``; Laplace noise with scale
+    ``sensitivity / epsilon`` is then added. Results are clipped to be
+    non-negative (demand is never negative).
+
+    Args:
+        values: Raw numeric outputs (e.g. demand forecasts).
+        epsilon: Privacy budget; smaller ⇒ more noise ⇒ stronger privacy.
+        clip_max: Upper clip bound and basis for the sensitivity.
+        clip_min: Lower clip bound (default 0).
+        rng: Optional seeded RNG for reproducibility.
+
+    Returns:
+        The privatised values (rounded to 4 dp), in input order.
+
+    Raises:
+        ValueError: If ``epsilon`` is not positive or bounds are inverted.
+    """
+    if epsilon <= 0:
+        raise ValueError("epsilon must be positive for the Laplace mechanism.")
+    if clip_max <= clip_min:
+        raise ValueError("clip_max must be greater than clip_min.")
+    sensitivity = clip_max - clip_min
+    scale = sensitivity / epsilon
+    out: list[float] = []
+    for v in values:
+        clipped = min(clip_max, max(clip_min, float(v)))
+        noisy = clipped + laplace_noise(scale, rng)
+        out.append(round(max(0.0, noisy), 4))
+    return out
+
+
 class PrivacyGuard:
     """Stateful guard applying PII redaction and synthetic-only checks.
 
@@ -117,11 +182,34 @@ class PrivacyGuard:
         fail_closed: If True, ambiguous/forbidden records raise rather than
             being silently dropped.
         max_output_chars: Hard cap on returned text length.
+        dp_enabled: If True, :meth:`privatize_forecast` perturbs values with the
+            Laplace mechanism; otherwise it returns them unchanged.
+        dp_epsilon: Privacy budget for the Laplace mechanism.
+        dp_clip_max: Clip bound / sensitivity for the Laplace mechanism.
     """
 
-    def __init__(self, fail_closed: bool = True, max_output_chars: int = 8000) -> None:
+    def __init__(
+        self,
+        fail_closed: bool = True,
+        max_output_chars: int = 8000,
+        *,
+        dp_enabled: bool = False,
+        dp_epsilon: float = 1.0,
+        dp_clip_max: float = 1000.0,
+    ) -> None:
         self.fail_closed = fail_closed
         self.max_output_chars = max_output_chars
+        self.dp_enabled = dp_enabled
+        self.dp_epsilon = dp_epsilon
+        self.dp_clip_max = dp_clip_max
+
+    def privatize_forecast(
+        self, values: list[float], rng: random.Random | None = None
+    ) -> list[float]:
+        """Return ``values`` with ε-DP Laplace noise if DP is enabled, else as-is."""
+        if not self.dp_enabled:
+            return values
+        return privatize_values(values, self.dp_epsilon, clip_max=self.dp_clip_max, rng=rng)
 
     def filter_output(self, text: str) -> str:
         """Redact PII and truncate ``text`` for safe outbound display."""
