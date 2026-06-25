@@ -41,7 +41,7 @@ def _try_build_agent() -> None:
     try:
         _STATE["agent"] = build_agent()
         log.info("agent_ready")
-    except (RagAgentError, Exception) as exc:  # noqa: BLE001 - never crash startup
+    except Exception as exc:  # noqa: BLE001 - startup must never crash
         log.warning("agent_unavailable", error=str(exc))
         _STATE["agent"] = None
 

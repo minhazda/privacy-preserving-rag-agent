@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # 1. Lint, type-check, and run the (mocked) unit tests on a light profile.
+  # 1. Lint, type-check, and unit-test (mocked externals -> no API key needed).
   quality:
     name: Lint, type-check & test
     runs-on: ubuntu-latest
@@ -47,8 +47,8 @@ jobs:
           path: coverage.xml
           if-no-files-found: ignore
 
-  # 2. Build (and on main, push) the full-stack image to GHCR. This is where
-  #    the heavy runtime stack (chromadb, langchain*) install is validated.
+  # 2. Build (and on main, push) the full image to GHCR. This validates that
+  #    the complete pinned stack (chromadb, langchain*) installs cleanly.
   docker:
     name: Build & push image
     runs-on: ubuntu-latest
@@ -86,7 +86,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # 3. Smoke: the built image imports the app and loads config (no API key).
+  # 3. Smoke: the built image imports the app and loads config (no key needed).
   smoke:
     name: Image smoke test
     runs-on: ubuntu-latest
@@ -95,7 +95,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build image
         run: docker build -t privacy-rag-agent:ci .
-      - name: Import + config load
+      - name: Import + config check
         run: |
           docker run --rm privacy-rag-agent:ci \
             python -c "from rag_agent.api.main import app; from rag_agent.config import load_config; load_config(); print('image ok')"

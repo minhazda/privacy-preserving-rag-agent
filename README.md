@@ -1,14 +1,17 @@
-# Privacy-Preserving RAG Agent
+# Privacy-Preserving RAG Agent — Research Q&A with Live Tool-Calling
 
 [![CI/CD](https://github.com/minhazda/privacy-preserving-rag-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/minhazda/privacy-preserving-rag-agent/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.11-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-A production-grade **RAG agent** that answers questions about retail-forecasting
-research and can run **live demand forecasts** through tool-calling — while a
-privacy guard guarantees that **only synthetic, non-identifying data is ever
-exposed**. It pairs with [Project 1](https://github.com/minhazda/synthetic-retail-mlops-pipeline)
-(the forecasting pipeline), calling its API as a tool.
+A production-grade **retrieval-augmented agent** that answers questions about my
+research on retail demand forecasting and can **call a live forecasting model**
+as a tool — all behind a privacy guard that guarantees only **synthetic** data
+is ever exposed. This is Project 2 of a portfolio; it consumes the forecasting
+API from [Project 1](https://github.com/minhazda/synthetic-retail-mlops-pipeline).
+
+Same engineering bar as Project 1: typed, tested, type-checked, containerized,
+and shipped through CI/CD.
 
 > **Author:** Md Minhazur Rahman · MSc Data Science, University of Greenwich
 
@@ -16,18 +19,14 @@ exposed**. It pairs with [Project 1](https://github.com/minhazda/synthetic-retai
 
 ## What it does
 
-- **Retrieval-augmented Q&A** over a corpus (dissertation + preprint) indexed in
-  **ChromaDB** with **on-device ONNX embeddings** — no API key, no network for
-  embeddings, nothing leaves the machine.
-- **A LangGraph ReAct agent** (Claude) that autonomously chooses between two
-  tools: `retrieve_research` and `forecast_demand`.
-- **Tool-calling for live forecasts**: `forecast_demand` calls the Project 1
-  inference API — but every row is validated against a synthetic-feature
-  allow-list first, so the tool cannot send or surface real data.
-- **A privacy guard** that redacts PII-shaped strings (emails, phones, SSNs,
-  cards via Luhn, IPs) and fail-closes on any non-allow-listed record.
-- **FastAPI backend + a minimal chat frontend**, containerized, tested, and
-  shipped through CI/CD.
+- **RAG over my research.** Ingests the dissertation + preprint into a local
+  ChromaDB vector store and answers grounded, cited questions.
+- **Tool-calling agent (LangGraph).** A ReAct agent autonomously chooses between
+  retrieving research passages and running a **live demand forecast**.
+- **Privacy by design.** Embeddings run **on-device** (ONNX MiniLM — nothing
+  leaves the machine). A guard redacts PII and enforces a synthetic-only
+  allow-list on every record and every final answer (fail-closed).
+- **FastAPI backend + chat frontend.** A `/chat` endpoint and a minimal web UI.
 
 ---
 
@@ -36,25 +35,26 @@ exposed**. It pairs with [Project 1](https://github.com/minhazda/synthetic-retai
 ```mermaid
 flowchart LR
     subgraph Ingest["Ingestion (offline)"]
-        DOCS["Documents<br/>pdf · md · txt"] --> CHUNK["Pure-Python chunker"]
-        CHUNK --> EMB["ONNX MiniLM<br/>(on-device)"]
-        EMB --> CHROMA[("ChromaDB<br/>persistent")]
+        DOCS["Documents<br/>dissertation · preprint · md/txt"]
+        CHUNK["Pure-Python chunker"]
+        EMB["On-device ONNX embeddings"]
+        DOCS --> CHUNK --> EMB --> VS[("ChromaDB<br/>persistent")]
     end
 
-    subgraph Serving["Serving"]
+    subgraph Serve["Serving"]
         UI["Chat frontend"] --> API["FastAPI /chat"]
         API --> AGENT["LangGraph ReAct agent<br/>(Claude)"]
-        AGENT -->|retrieve_research| CHROMA
-        AGENT -->|forecast_demand| GUARD1["Privacy guard<br/>(synthetic-only)"]
-        GUARD1 --> F1["Project 1<br/>forecasting API"]
-        AGENT --> GUARD2["Privacy guard<br/>(PII redaction)"]
-        GUARD2 --> API
+        AGENT -->|tool: retrieve_research| VS
+        AGENT -->|tool: forecast_demand| FAPI["Project 1<br/>Forecasting API"]
+        AGENT --> GUARD["Privacy guard<br/>redact + synthetic-only"]
+        GUARD --> API
     end
 ```
 
-Every tool result and final answer passes through the privacy guard before it
-reaches the user. Because the underlying data is synthetic by construction, the
-guard normally has nothing to redact — it is **defence in depth**, not a crutch.
+Every tool result and the final answer pass through the **privacy guard** before
+reaching the user. `forecast_demand` validates each feature row against the
+synthetic allow-list *before* it leaves the process, so the tool can never be
+used to send or surface real data.
 
 ---
 
@@ -63,21 +63,21 @@ guard normally has nothing to redact — it is **defence in depth**, not a crutc
 ```
 02-privacy-preserving-rag-agent/
 ├── src/rag_agent/
-│   ├── config.py          # Typed, YAML-driven config (secrets from env only)
+│   ├── config.py          # Typed, YAML-driven config (secrets from env)
 │   ├── exceptions.py      # Custom exception hierarchy
 │   ├── logging_config.py  # Structured JSON logging
 │   ├── privacy.py         # PII redaction + synthetic-only guard (pure-Python)
-│   ├── vectorstore.py     # ChromaDB + on-device ONNX embeddings (lazy import)
-│   ├── ingest.py          # Loader + pure-Python chunker + indexer
-│   ├── tools.py           # retrieve_research · forecast_demand (testable)
-│   ├── agent.py           # LangGraph ReAct agent wiring
-│   └── api/main.py        # FastAPI app + chat frontend
-├── tests/                 # pytest: privacy, config, ingest, tools, api (mocked)
+│   ├── ingest.py          # Loader + pure-Python chunker
+│   ├── vectorstore.py     # ChromaDB + on-device ONNX embeddings
+│   ├── tools.py           # retrieve_research, forecast_demand (testable)
+│   ├── agent.py           # LangGraph ReAct agent
+│   └── api/main.py        # FastAPI + chat frontend
+├── tests/                 # privacy, config, ingest, tools, api (mocked)
 ├── configs/config.yaml    # Central configuration
 ├── data/documents/        # Corpus (your PDFs go here; gitignored)
 ├── Dockerfile · docker-compose.yml · docker/entrypoint.sh
 ├── .github/workflows/ci.yml
-├── requirements.txt · requirements-ci.txt · requirements-dev.txt
+├── requirements.txt · requirements-dev.txt · requirements-ci.txt
 └── pyproject.toml
 ```
 
@@ -85,76 +85,97 @@ guard normally has nothing to redact — it is **defence in depth**, not a crutc
 
 ## Quickstart
 
-### 1. Configure secrets
-The agent uses Claude; the key is read **only** from the environment.
+### 1. Configure your key
+The agent uses Claude. The key is read **only** from the environment:
+
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-### 2. Add your corpus
-Drop `dissertation.pdf` and `preprint.pdf` into `data/documents/` (gitignored).
-A synthetic sample doc ships so everything works out of the box.
+Add your `dissertation.pdf` and `preprint.pdf` to `data/documents/` (a synthetic
+sample doc is included so everything works without them).
 
-### 3. Docker (recommended)
+### Option A — Docker Compose
+
 ```bash
-docker compose run --rm ingest   # index the corpus into ChromaDB
-docker compose up api            # serve on http://localhost:8080
+docker compose run --rm ingest      # index the corpus
+docker compose up api               # http://localhost:8080
 ```
 
-### 4. Local Python
+### Option B — Local Python
+
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt && pip install -e .
 
-python -m rag_agent.ingest                         # index corpus
-uvicorn rag_agent.api.main:app --port 8080         # serve
+python -m rag_agent.ingest                                  # build the index
+uvicorn rag_agent.api.main:app --port 8080                  # serve UI + API
 ```
+
+Ask a question:
 
 ```bash
-curl -s localhost:8080/health
-curl -s -X POST localhost:8080/chat \
+curl -s -X POST http://localhost:8080/chat \
   -H 'Content-Type: application/json' \
-  -d '{"message": "What MAE reduction did the model achieve?"}'
+  -d '{"message": "What MAE reduction did the model achieve, and forecast demand for a promo hour?"}'
 ```
 
-To enable live forecasts, run the Project 1 API and point
-`forecasting.api_url` in `configs/config.yaml` at it.
+To enable the `forecast_demand` tool, run Project 1's API and point
+`forecasting.api_url` in `configs/config.yaml` at it (default
+`http://localhost:8000`).
 
 ---
 
-## Privacy model
+## Privacy design
 
 | Layer | Guarantee |
 |-------|-----------|
-| **Data** | All data is synthetic — generated, never sourced from real customers. |
-| **Input guard** | `forecast_demand` rejects any row with a non-allow-listed or identifying field **before** it leaves the process (fail-closed). |
-| **Output guard** | Every answer is scanned and PII-shaped strings (email, phone, SSN, Luhn-valid cards, IPv4) are redacted. |
-| **Secrets** | API keys come from the environment only — never config or code. |
+| **Embeddings** | On-device ONNX model — no document text is sent to any API. |
+| **Tool inputs** | Every forecast row checked against a synthetic-only allow-list; forbidden/identifying keys are rejected (fail-closed). |
+| **Outputs** | PII patterns (email, phone, SSN, IPv4, Luhn-valid cards) are redacted; responses are length-capped. |
+| **Secrets** | `ANTHROPIC_API_KEY` is read from the environment only — never from config or code. |
 
-The guard is pure-Python and exhaustively unit-tested (`tests/test_privacy.py`).
+Because the underlying data is synthetic by construction, the guard should never
+have anything to redact in normal use — it is defence in depth.
 
 ---
 
 ## Quality gates
 
+| Tool | Purpose |
+|------|---------|
+| **ruff / black** | Lint, import order, formatting |
+| **mypy** | Static typing (all functions typed) |
+| **pytest** | Unit tests for privacy, config, chunking, tools, and API |
+| **pre-commit** | Runs the above on every commit |
+
+Unit tests mock the LLM, vector store, and forecasting API, so they run in
+milliseconds with **no API key and no heavy dependencies**. CI runs them on a
+light profile (`requirements-ci.txt`); the Docker build job validates the full
+pinned stack installs cleanly.
+
 ```bash
 ruff check src tests && black --check src tests && mypy src && pytest
 ```
 
-CI runs three jobs: **quality** (lint, type-check, mocked unit tests on a light
-profile), **docker** (build + push to GHCR — validates the full runtime stack
-install), and **smoke** (the built image imports and loads config). Heavy
-dependencies (ChromaDB, LangChain) are imported lazily and mocked in tests, so
-unit CI is fast and needs no API key.
+---
+
+## CI/CD
+
+`.github/workflows/ci.yml` runs three jobs on every push/PR:
+1. **quality** — ruff, black, mypy, pytest (mocked, fast).
+2. **docker** — build the multi-stage image; on `main`, push to GHCR.
+3. **smoke** — the built image imports the app and loads config in a clean
+   container.
 
 ---
 
 ## Roadmap
 
 - Streaming responses (SSE) in the chat UI.
-- Reranking + hybrid (BM25 + vector) retrieval.
-- Per-tenant collections and answer-level citation highlighting.
-- Evidently-based monitoring of retrieval quality and answer drift.
+- Hybrid retrieval (BM25 + dense) and reranking.
+- Evaluation harness (faithfulness / answer-relevance) in CI.
+- Terraform for cloud deployment (shared with Project 1).
 
 ---
 

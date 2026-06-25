@@ -15,4 +15,3 @@ data/chroma
 *.env
 .env
 tests
-README.md
