@@ -55,28 +55,56 @@
         return d;
       }
 
-      form.addEventListener("submit", async (e) => {
+      let sessionId = null;
+
+      // Stream over WebSocket; fall back to POST /chat if the socket fails.
+      function ask(q, pending) {
+        const proto = location.protocol === "https:" ? "wss" : "ws";
+        let ws;
+        try {
+          ws = new WebSocket(`${proto}://${location.host}/ws/chat`);
+        } catch (_) {
+          return askHttp(q, pending);
+        }
+        let streamed = false;
+        const timer = setTimeout(() => { if (!streamed) { try { ws.close(); } catch (_) {} } }, 4000);
+        ws.onopen = () => ws.send(JSON.stringify({ message: q, session_id: sessionId }));
+        ws.onmessage = (ev) => {
+          const f = JSON.parse(ev.data);
+          if (f.type === "start") { sessionId = f.session_id; pending.textContent = ""; }
+          else if (f.type === "chunk") { streamed = true; pending.textContent += f.data; log.scrollTop = log.scrollHeight; }
+          else if (f.type === "done") { clearTimeout(timer); ws.close(); finish(); }
+          else if (f.type === "error") { clearTimeout(timer); pending.textContent = "Error: " + f.detail; ws.close(); finish(); }
+        };
+        ws.onerror = () => { clearTimeout(timer); if (!streamed) askHttp(q, pending); };
+      }
+
+      async function askHttp(q, pending) {
+        try {
+          const r = await fetch("/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ message: q, session_id: sessionId }),
+          });
+          const data = await r.json();
+          if (r.ok) sessionId = data.session_id;
+          pending.textContent = r.ok ? data.answer : ("Error: " + (data.detail || r.status));
+        } catch (err) {
+          pending.textContent = "Network error: " + err;
+        } finally { finish(); }
+      }
+
+      function finish() { send.disabled = false; input.focus(); }
+
+      form.addEventListener("submit", (e) => {
         e.preventDefault();
         const q = input.value.trim();
         if (!q) return;
         bubble(q, "user");
         input.value = "";
         send.disabled = true;
-        const pending = bubble("…thinking", "bot");
-        try {
-          const r = await fetch("/chat", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ message: q }),
-          });
-          const data = await r.json();
-          pending.textContent = r.ok ? data.answer : ("Error: " + (data.detail || r.status));
-        } catch (err) {
-          pending.textContent = "Network error: " + err;
-        } finally {
-          send.disabled = false;
-          input.focus();
-        }
+        const pending = bubble("…", "bot");
+        ask(q, pending);
       });
     </script>
   </body>
