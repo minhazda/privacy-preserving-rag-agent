@@ -170,11 +170,40 @@ ruff check src tests && black --check src tests && mypy src && pytest
 
 ---
 
+## 📊 Evaluation
+
+Offline RAG quality metrics run via `python -m rag_agent.eval` (no API key, no network).
+
+**Method:** deterministic lexical proxies (custom, ~150 lines in `src/rag_agent/eval/metrics.py`).
+No LLM judge. Tokens are lowercased, stop-words removed, light-stemmed; overlap is computed
+between answer sentences, question terms, and retrieved contexts.
+
+**Dataset:** 4 hand-written gold cases in `src/rag_agent/eval/dataset.py`, grounded in the
+research domain (synthetic data, demand forecasting, differential privacy, CTGAN).
+These are pre-authored pairs — **not** live agent outputs — so they serve as a CI quality gate
+rather than an end-to-end agent benchmark.
+
+| Question | Faithfulness | Answer Relevance | Context Precision |
+|----------|:---:|:---:|:---:|
+| What is synthetic data and why does it preserve privacy? | 1.00 | 1.00 | 1.00 |
+| Which model was used for forecasting and how was accuracy measured? | 1.00 | 0.83 | 1.00 |
+| How does differential privacy protect forecast outputs? | 1.00 | 1.00 | 1.00 |
+| What is CTGAN and what does it do for tabular data? | 1.00 | 1.00 | 1.00 |
+| **Mean** | **1.00** | **0.96** | **1.00** |
+
+All means exceed the CI thresholds (faithfulness ≥ 0.70, answer relevance ≥ 0.60, context precision ≥ 0.50). Reproduce with:
+
+```bash
+pip install -e .
+python -m rag_agent.eval
+```
+
+---
+
 ## Roadmap
 
 - Streaming responses (SSE) in the chat UI.
 - Hybrid retrieval (BM25 + dense) and reranking.
-- Evaluation harness (faithfulness / answer-relevance) in CI.
 - Terraform for cloud deployment (shared with Project 1).
 
 ---
