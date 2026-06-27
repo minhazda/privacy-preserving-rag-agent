@@ -106,6 +106,118 @@ GOLD_CASES: tuple[EvalCase, ...] = (
             "imbalanced categorical columns in tabular data.",
         ),
     ),
+    EvalCase(
+        question="What is MASE and why is it used to compare forecasts?",
+        reference=(
+            "MASE is the mean absolute scaled error: forecast MAE divided by the "
+            "MAE of a naive baseline, so a value below 1 beats the baseline and "
+            "it is comparable across series of different scales."
+        ),
+        answer=(
+            "MASE (mean absolute scaled error) scales forecast MAE by a naive "
+            "baseline's MAE; below 1 means the model beats the baseline, and it "
+            "is scale-free so series of different magnitudes are comparable."
+        ),
+        contexts=(
+            "MASE divides the forecast's mean absolute error by the MAE of a "
+            "naive baseline; a value under 1 means the model beats the baseline.",
+            "Because it is scaled, MASE is comparable across time series with "
+            "different magnitudes.",
+        ),
+    ),
+    EvalCase(
+        question="How is data leakage avoided when building forecasting features?",
+        reference=(
+            "Leakage is avoided with a time-ordered train/test split and lag and "
+            "rolling features computed per series without looking ahead, so no "
+            "future information enters training."
+        ),
+        answer=(
+            "A time-ordered split is used instead of random shuffling, and lag "
+            "and rolling-mean features are computed per series using only past "
+            "values, so future information never leaks into training."
+        ),
+        contexts=(
+            "The split is time-ordered rather than random so the test period is "
+            "strictly in the future.",
+            "Lag and rolling features are computed per series from past values "
+            "only, with no look-ahead, preventing leakage.",
+        ),
+    ),
+    EvalCase(
+        question="What does the agent's privacy guard do to tool inputs and outputs?",
+        reference=(
+            "The privacy guard validates every forecast row against a "
+            "synthetic-only allow-list and redacts PII patterns from outputs, "
+            "failing closed when an identifying field appears."
+        ),
+        answer=(
+            "The guard checks each tool input row against a synthetic-only "
+            "allow-list and rejects identifying fields (fail-closed), and it "
+            "redacts PII patterns such as emails and card numbers from outputs."
+        ),
+        contexts=(
+            "Every forecast row is checked against a synthetic-only allow-list; "
+            "identifying keys are rejected, failing closed.",
+            "Outputs are scanned and PII patterns (email, phone, card numbers) "
+            "are redacted before reaching the user.",
+        ),
+    ),
+    EvalCase(
+        question="Why are document embeddings computed on-device?",
+        reference=(
+            "Embeddings are computed on-device with an ONNX MiniLM model so that "
+            "document text never leaves the machine, keeping the corpus private."
+        ),
+        answer=(
+            "The agent runs an on-device ONNX MiniLM embedding model, so document "
+            "text is never sent to an external API and the corpus stays private."
+        ),
+        contexts=(
+            "Embeddings use an on-device ONNX MiniLM model so no document text is "
+            "sent to any external API.",
+            "Keeping embedding local means the research corpus never leaves the "
+            "machine.",
+        ),
+    ),
+    EvalCase(
+        question="What is rolling-origin cross-validation for time series?",
+        reference=(
+            "Rolling-origin cross-validation repeatedly trains on data up to a "
+            "cutoff and tests on the next window, advancing the origin forward, "
+            "so evaluation always respects temporal order."
+        ),
+        answer=(
+            "Rolling-origin cross-validation moves the training cutoff forward in "
+            "steps, each time training on the past and testing on the following "
+            "window, preserving temporal order across folds."
+        ),
+        contexts=(
+            "Rolling-origin cross-validation trains up to a cutoff and tests on "
+            "the next window, then advances the origin.",
+            "Each fold respects temporal order: training is always on the past, "
+            "testing on the future.",
+        ),
+    ),
+    EvalCase(
+        question="Why can MAPE be misleading for sparse, low-count demand?",
+        reference=(
+            "MAPE is inflated when actual values are near zero because the "
+            "percentage error divides by tiny denominators, so MAE or RMSE are "
+            "preferred for sparse low-count demand."
+        ),
+        answer=(
+            "With sparse low counts, MAPE divides by near-zero actuals and blows "
+            "up, so it is misleading; scale-robust metrics like MAE and RMSE are "
+            "preferred instead."
+        ),
+        contexts=(
+            "When actual demand is near zero, MAPE's division by a tiny "
+            "denominator inflates the percentage error.",
+            "For sparse, low-count series, MAE and RMSE are more reliable "
+            "headline metrics than MAPE.",
+        ),
+    ),
 )
 
 

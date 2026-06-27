@@ -71,13 +71,14 @@ used to send or surface real data.
 │   ├── vectorstore.py     # ChromaDB + on-device ONNX embeddings
 │   ├── tools.py           # retrieve_research, forecast_demand (testable)
 │   ├── agent.py           # LangGraph ReAct agent
+│   ├── eval/              # Two-tier eval: lexical proxies + LLM-as-judge
 │   └── api/main.py        # FastAPI + chat frontend
-├── tests/                 # privacy, config, ingest, tools, api (mocked)
+├── tests/                 # privacy, config, ingest, tools, api, eval (mocked)
 ├── configs/config.yaml    # Central configuration
 ├── data/documents/        # Corpus (your PDFs go here; gitignored)
 ├── Dockerfile · docker-compose.yml · docker/entrypoint.sh
 ├── .github/workflows/ci.yml
-├── requirements.txt · requirements-dev.txt · requirements-ci.txt
+├── requirements.txt · requirements-dev.txt · requirements-ci.txt · requirements-eval.txt
 └── pyproject.toml
 ```
 
@@ -146,7 +147,7 @@ have anything to redact in normal use — it is defence in depth.
 |------|---------|
 | **ruff / black** | Lint, import order, formatting |
 | **mypy** | Static typing (all functions typed) |
-| **pytest** | Unit tests for privacy, config, chunking, tools, and API |
+| **pytest** | Unit tests for privacy, config, chunking, tools, API, and eval |
 | **pre-commit** | Runs the above on every commit |
 
 Unit tests mock the LLM, vector store, and forecasting API, so they run in
@@ -172,31 +173,41 @@ ruff check src tests && black --check src tests && mypy src && pytest
 
 ## 📊 Evaluation
 
-Offline RAG quality metrics run via `python -m rag_agent.eval` (no API key, no network).
+Two complementary scorers, both driven from `python -m rag_agent.eval`:
 
-**Method:** deterministic lexical proxies (custom, ~150 lines in `src/rag_agent/eval/metrics.py`).
-No LLM judge. Tokens are lowercased, stop-words removed, light-stemmed; overlap is computed
-between answer sentences, question terms, and retrieved contexts.
+### Tier 1 — Lexical proxies (CI gate, no API key)
+Deterministic RAGAS-style proxies in `src/rag_agent/eval/metrics.py`: tokens are
+lowercased, stop-words removed and light-stemmed, then overlap is scored between
+answer sentences, question terms, and retrieved contexts. They run in
+milliseconds with no network, so CI can gate on them deterministically.
 
-**Dataset:** 4 hand-written gold cases in `src/rag_agent/eval/dataset.py`, grounded in the
-research domain (synthetic data, demand forecasting, differential privacy, CTGAN).
-These are pre-authored pairs — **not** live agent outputs — so they serve as a CI quality gate
-rather than an end-to-end agent benchmark.
-
-| Question | Faithfulness | Answer Relevance | Context Precision |
-|----------|:---:|:---:|:---:|
-| What is synthetic data and why does it preserve privacy? | 1.00 | 1.00 | 1.00 |
-| Which model was used for forecasting and how was accuracy measured? | 1.00 | 0.83 | 1.00 |
-| How does differential privacy protect forecast outputs? | 1.00 | 1.00 | 1.00 |
-| What is CTGAN and what does it do for tabular data? | 1.00 | 1.00 | 1.00 |
-| **Mean** | **1.00** | **0.96** | **1.00** |
-
-All means exceed the CI thresholds (faithfulness ≥ 0.70, answer relevance ≥ 0.60, context precision ≥ 0.50). Reproduce with:
+### Tier 2 — LLM-as-judge (Claude, opt-in)
+`python -m rag_agent.eval --judge` grades each case with a Claude model
+(`src/rag_agent/eval/llm_judge.py`) on a 1–5 rubric for **faithfulness**,
+**answer relevance**, and **context precision** (normalised to 0–1). Needs
+`ANTHROPIC_API_KEY`; the judge model is configurable via `RAG_JUDGE_MODEL`
+(default `claude-sonnet-4-6`). Set Langfuse keys to **trace every judgement**.
+This is the meaningful generative grade; the lexical tier is the fast,
+deterministic guardrail.
 
 ```bash
+# Tier 1 — lexical (what CI runs)
 pip install -e .
 python -m rag_agent.eval
+
+# Tier 2 — LLM-as-judge (+ optional Langfuse tracing)
+pip install -r requirements-eval.txt
+export ANTHROPIC_API_KEY=sk-ant-...
+python -m rag_agent.eval --judge
 ```
+
+**Dataset:** 10 hand-written gold cases in `src/rag_agent/eval/dataset.py`,
+grounded in the research domain (synthetic data, demand forecasting, differential
+privacy, CTGAN, MASE, leakage prevention, the privacy guard, on-device
+embeddings, rolling-origin CV, MAPE pitfalls). Lexical means clear the CI
+thresholds (faithfulness ≥ 0.70, answer relevance ≥ 0.60, context precision
+≥ 0.50); the gold answers are written to be faithful, so the lexical tier proves
+the gate works while `--judge` stress-tests real agent outputs.
 
 ---
 
