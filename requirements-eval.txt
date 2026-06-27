@@ -1,0 +1,10 @@
+# Evaluation-only dependencies (LLM-as-judge + optional tracing).
+# Not required for the lexical CI gate; install to run `python -m rag_agent.eval --judge`.
+#
+#   pip install -r requirements-eval.txt
+#   export ANTHROPIC_API_KEY=sk-ant-...
+#   python -m rag_agent.eval --judge
+#
+# (anthropic is already a runtime dependency; pinned here for the eval extra too.)
+anthropic>=0.39
+langfuse>=2.0   # optional: set LANGFUSE_PUBLIC_KEY/SECRET_KEY/HOST to trace judgements

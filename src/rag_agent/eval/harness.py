@@ -1,10 +1,17 @@
 """Evaluation harness: score cases, aggregate, and gate on thresholds.
 
-``evaluate`` scores a list of :class:`~rag_agent.eval.dataset.EvalCase` with the
-deterministic metrics in :mod:`rag_agent.eval.metrics` and returns an
-:class:`EvalReport`. The CLI (``python -m rag_agent.eval``) runs the built-in
-gold set (or a JSON dataset), prints a table, and exits non-zero if any mean
-metric is below its threshold — so it can fail a CI job.
+``evaluate`` scores a list of :class:`~rag_agent.eval.dataset.EvalCase` and
+returns an :class:`EvalReport`. Two scorers are available:
+
+* **lexical** (default) — deterministic proxies in :mod:`rag_agent.eval.metrics`;
+  no API key, suitable for CI gating.
+* **LLM-as-judge** (``--judge``) — Claude grades each case via
+  :mod:`rag_agent.eval.llm_judge` (needs ``ANTHROPIC_API_KEY``), optionally
+  traced to Langfuse.
+
+The CLI (``python -m rag_agent.eval``) runs the built-in gold set (or a JSON
+dataset), prints a table, and exits non-zero if any mean metric is below its
+threshold.
 """
 
 from __future__ import annotations
@@ -39,6 +46,7 @@ class EvalReport:
     """Aggregated evaluation results over a set of cases."""
 
     scores: list[CaseScore] = field(default_factory=list)
+    scorer: str = "lexical"
 
     def _mean(self, attr: str) -> float:
         if not self.scores:
@@ -60,8 +68,18 @@ class EvalReport:
         return all(means[k] >= v for k, v in thr.items())
 
 
-def score_case(case: EvalCase) -> CaseScore:
-    """Compute all metrics for a single case."""
+def score_case(case: EvalCase, *, judge: bool = False) -> CaseScore:
+    """Compute all metrics for a single case (lexical proxies or LLM judge)."""
+    if judge:
+        from .llm_judge import judge_case
+
+        js = judge_case(case)
+        return CaseScore(
+            question=case.question,
+            faithfulness=round(js.faithfulness, 4),
+            answer_relevance=round(js.answer_relevance, 4),
+            context_precision=round(js.context_precision, 4),
+        )
     return CaseScore(
         question=case.question,
         faithfulness=round(faithfulness(case.answer, case.contexts), 4),
@@ -70,9 +88,10 @@ def score_case(case: EvalCase) -> CaseScore:
     )
 
 
-def evaluate(cases: Sequence[EvalCase]) -> EvalReport:
+def evaluate(cases: Sequence[EvalCase], *, judge: bool = False) -> EvalReport:
     """Score every case and return an :class:`EvalReport`."""
-    return EvalReport(scores=[score_case(c) for c in cases])
+    scorer = "llm-judge" if judge else "lexical"
+    return EvalReport(scores=[score_case(c, judge=judge) for c in cases], scorer=scorer)
 
 
 def _format_table(report: EvalReport) -> str:
@@ -93,18 +112,29 @@ def _format_table(report: EvalReport) -> str:
 
 def main() -> int:
     """CLI entrypoint. Returns a process exit code (0 pass, 1 fail)."""
-    parser = argparse.ArgumentParser(description="Evaluate RAG quality (offline).")
+    parser = argparse.ArgumentParser(description="Evaluate RAG quality.")
     parser.add_argument("--dataset", default=None, help="JSON dataset (default: gold set).")
+    parser.add_argument(
+        "--judge",
+        action="store_true",
+        help="Use the Claude LLM-as-judge scorer (needs ANTHROPIC_API_KEY).",
+    )
     parser.add_argument("--json", action="store_true", help="Emit JSON instead of a table.")
     args = parser.parse_args()
 
     cases = load_cases(args.dataset) if args.dataset else list(GOLD_CASES)
-    report = evaluate(cases)
+    report = evaluate(cases, judge=args.judge)
     passed = report.passes()
 
     if args.json:
-        print(json.dumps({"means": report.means(), "passed": passed}, indent=2))
+        print(
+            json.dumps(
+                {"scorer": report.scorer, "means": report.means(), "passed": passed},
+                indent=2,
+            )
+        )
     else:
+        print(f"Scorer: {report.scorer}  (cases: {len(cases)})")
         print(_format_table(report))
         print(f"\nThresholds: {DEFAULT_THRESHOLDS}")
         print("RESULT:", "PASS" if passed else "FAIL")
